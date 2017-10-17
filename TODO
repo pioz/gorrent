@@ -1,2 +1,1 @@
-* windows: progress bar percent
-* windows: menu bar
+* QSettings to store TVDB api key and other settings
