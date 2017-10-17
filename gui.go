@@ -71,10 +71,6 @@ func NewGui() *Gui {
 	g.filterCheckBox.SetFont(gui.NewQFont2("FontAwesome", 14, 0, false))
 	g.filterCheckBox.SetText("\uf0b0")
 	g.filterCheckBox.SetLayoutDirection(core.Qt__RightToLeft)
-<<<<<<< HEAD
-	g.filterCheckBox.SetContentsMargins(5, 5, 10, 5)
-=======
->>>>>>> 5b0f8340c51993a1b32618a0f26fda632f1581f7
 	g.toolBar.AddWidget(g.filterCheckBox)
 	g.filterInput.SetDisabled(true)
 	g.filterInput.SetFixedWidth(150)
@@ -133,6 +129,8 @@ func (g *Gui) initMenuBar() {
 			`<p><h1>Gorrent</h1> version 0.1.0</p>
 			<p>Developed by <a href="https://github.com/pioz">Pioz</a> in an attempt to learn Go and revise QT</p>`)
 	})
+
+	g.window.SetMenuBar(g.menuBar)
 }
 
 func (g *Gui) connectEvents() {
