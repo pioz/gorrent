@@ -70,6 +70,8 @@ func NewGui() *Gui {
 	g.filterCheckBox.SetDisabled(true)
 	g.filterCheckBox.SetFont(gui.NewQFont2("FontAwesome", 14, 0, false))
 	g.filterCheckBox.SetText("\uf0b0")
+	g.filterCheckBox.SetLayoutDirection(core.Qt__RightToLeft)
+	g.filterCheckBox.SetContentsMargins(5, 5, 10, 5)
 	g.toolBar.AddWidget(g.filterCheckBox)
 	g.filterInput.SetDisabled(true)
 	g.filterInput.SetFixedWidth(150)
@@ -89,6 +91,7 @@ func NewGui() *Gui {
 	g.progressBar.SetFixedWidth(200)
 	g.progressBar.Hide()
 	g.statusBar.AddPermanentWidget(g.progressBar, 0)
+	g.statusBar.SetStyleSheet("QStatusBar::item { border: 0px}")
 	g.window.SetStatusBar(g.statusBar)
 	// Setup main window
 	g.window.SetWindowTitle("Gorrent")
