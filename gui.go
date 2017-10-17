@@ -71,7 +71,10 @@ func NewGui() *Gui {
 	g.filterCheckBox.SetFont(gui.NewQFont2("FontAwesome", 14, 0, false))
 	g.filterCheckBox.SetText("\uf0b0")
 	g.filterCheckBox.SetLayoutDirection(core.Qt__RightToLeft)
+<<<<<<< HEAD
 	g.filterCheckBox.SetContentsMargins(5, 5, 10, 5)
+=======
+>>>>>>> 5b0f8340c51993a1b32618a0f26fda632f1581f7
 	g.toolBar.AddWidget(g.filterCheckBox)
 	g.filterInput.SetDisabled(true)
 	g.filterInput.SetFixedWidth(150)
@@ -150,6 +153,7 @@ func (g *Gui) connectEvents() {
 		}
 		dirName := widgets.QFileDialog_GetExistingDirectory(nil, "Save torrent files", path, widgets.QFileDialog__ReadOnly)
 		g.working(true)
+		g.progressBar.SetMaximum(100)
 		g.progressBar.Show()
 		selected := g.list.RowsSelected()
 		go func() {
@@ -203,7 +207,7 @@ func (g *Gui) connectEvents() {
 		dirName := widgets.QFileDialog_GetExistingDirectory(nil, "Select directory with files to rename", core.QDir_HomePath(), widgets.QFileDialog__ReadOnly)
 		g.working(true)
 		g.setStatusMessage("Renaming...", "\uf0c5")
-		g.progressBar.Start()
+		g.progressBar.Show()
 		go func() {
 			err := renamer.Rename(dirName)
 			if err != nil {
@@ -281,7 +285,7 @@ func (g *Gui) working(freeze bool) {
 func (g *Gui) search() {
 	if g.searchInput.Text() != "" {
 		g.working(true)
-		g.progressBar.Start()
+		g.progressBar.Show()
 		g.setStatusMessage("Searching '"+g.searchInput.Text()+"'...", "\uf002")
 		go func() {
 			torrents, err := scraper.RetrieveTorrents(g.searchInput.Text())
