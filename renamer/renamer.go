@@ -22,7 +22,6 @@ func Rename(dirPath string) error {
 	c := tvdb.Client{Apikey: "YOUR API KEY"}
 	err := c.Login()
 	if err != nil {
-		fmt.Println("LOGIN ERROR")
 		return err
 	}
 	seriesName := filepath.Base(dirPath)

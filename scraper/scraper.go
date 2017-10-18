@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,10 +24,10 @@ type Torrent struct {
 const endPointURL string = "http://www.tntvillage.scambioetico.org/src/releaselist.php"
 
 // RetrieveTorrents func
-func RetrieveTorrents(q string) ([]Torrent, error) {
+func RetrieveTorrents(q string) ([][]byte, error) {
 	var (
 		pages    int
-		torrents []Torrent
+		torrents [][]byte
 	)
 	pages = 1
 	for page := 1; page <= pages && page <= 10; page++ {
@@ -59,7 +60,8 @@ func RetrieveTorrents(q string) ([]Torrent, error) {
 				name := tmp.Find("a").First().Text()
 				html, _ := tmp.Html()
 				info := strings.Split(html, "</a> ")[1]
-				torrents = append(torrents, Torrent{link, magnet, seeds, name, info})
+				json, _ := json.Marshal(Torrent{link, magnet, seeds, name, info})
+				torrents = append(torrents, json)
 			}
 		})
 	}

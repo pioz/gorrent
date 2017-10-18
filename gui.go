@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -16,8 +17,11 @@ import (
 
 // Gui struct
 type Gui struct {
-	stopChannel    chan bool
-	freeze         bool
+	core.QObject
+
+	stopChannel chan bool
+	freeze      bool
+
 	window         *widgets.QMainWindow
 	menuBar        *widgets.QMenuBar
 	searchAction   *widgets.QAction
@@ -33,14 +37,22 @@ type Gui struct {
 	statusBar      *widgets.QStatusBar
 	statusMessage  *widgets.QLabel
 	statusIcon     *widgets.QLabel
-	progressBar    *Progress
+	progressBar    *widgets.QProgressBar
+
+	_ func(err error)            `signal:"errorOccured"`
+	_ func()                     `signal:"activityInterrupted"`
+	_ func(torrents [][]byte)    `signal:"searchCompleted"`
+	_ func()                     `signal:"downloadCompleted"`
+	_ func(row int, name string) `signal:"downloadTorrentStarted"`
+	_ func(row, percent int)     `signal:"downloadTorrentCompleted"`
+	_ func()                     `signal:"RenameCompleted"`
 }
 
 const defaultRegexp = `ita\s(eng\s)?(mp3|ac3)`
 
-// NewGui returns new Gui struct
-func NewGui() *Gui {
-	g := new(Gui)
+// MakeGui returns new Gui struct
+func MakeGui() *Gui {
+	g := NewGui(nil)
 	g.stopChannel = make(chan bool)
 	g.freeze = false
 	// Constructors
@@ -56,7 +68,7 @@ func NewGui() *Gui {
 	g.statusBar = widgets.NewQStatusBar(g.window)
 	g.statusMessage = widgets.NewQLabel(nil, 0)
 	g.statusIcon = widgets.NewQLabel(nil, 0)
-	g.progressBar = NewProgress()
+	g.progressBar = widgets.NewQProgressBar(nil)
 	// Custom init
 	g.initMenuBar()
 	g.connectEvents()
@@ -87,6 +99,8 @@ func NewGui() *Gui {
 	g.statusIcon.SetContentsMargins(5, 0, 0, 0)
 	g.statusBar.AddWidget(g.statusIcon, 0)
 	g.statusBar.AddWidget(g.statusMessage, 0)
+	g.progressBar.SetMinimum(0)
+	g.progressBar.SetMaximum(100)
 	g.progressBar.SetFixedWidth(200)
 	g.progressBar.Hide()
 	g.statusBar.AddPermanentWidget(g.progressBar, 0)
@@ -134,13 +148,48 @@ func (g *Gui) initMenuBar() {
 }
 
 func (g *Gui) connectEvents() {
-	g.searchInput.ConnectReturnPressed(func() { g.search() })
+	g.searchAction.ConnectTriggered(func(bool) { g.searchButton.Click() })
+	g.downloadAction.ConnectTriggered(func(bool) { g.downloadButton.Click() })
+	g.renameAction.ConnectTriggered(func(checked bool) {
+		dirName := widgets.QFileDialog_GetExistingDirectory(nil, "Select directory with files to rename", core.QDir_HomePath(), widgets.QFileDialog__ReadOnly)
+		g.working(true)
+		g.startProgress(true)
+		g.searchAction.SetDisabled(true)
+		g.searchButton.SetDisabled(true)
+		g.setStatusMessage("Renaming...", "\uf0c5")
+		go func() {
+			err := renamer.Rename(dirName)
+			if err != nil {
+				g.ErrorOccured(err)
+				return
+			}
+			g.RenameCompleted()
+		}()
+	})
+
+	g.searchInput.ConnectReturnPressed(func() { g.searchButton.Click() })
 
 	g.searchButton.ConnectClicked(func(checked bool) {
 		if !g.freeze {
-			g.search()
+			if g.searchInput.Text() != "" {
+				g.working(true)
+				g.startProgress(true)
+				g.setStatusMessage("Searching '"+g.searchInput.Text()+"'...", "\uf002")
+				go func() {
+					torrents, err := scraper.RetrieveTorrents(g.searchInput.Text())
+					if err != nil {
+						g.ErrorOccured(err)
+						return
+					}
+					g.SearchCompleted(torrents)
+				}()
+			}
 		} else {
-			g.stopSearch()
+			g.searchAction.SetDisabled(true)
+			g.searchButton.SetDisabled(true)
+			go func() {
+				g.stopChannel <- true
+			}()
 		}
 	})
 
@@ -151,23 +200,27 @@ func (g *Gui) connectEvents() {
 		}
 		dirName := widgets.QFileDialog_GetExistingDirectory(nil, "Save torrent files", path, widgets.QFileDialog__ReadOnly)
 		g.working(true)
-		g.progressBar.SetMaximum(100)
-		g.progressBar.Show()
+		g.startProgress(false)
 		selected := g.list.RowsSelected()
 		go func() {
 			counter := 0
 			for row := 0; row < g.list.RowCount(); row++ {
-				if g.list.RowSelected(row) {
-					counter++
-					link, _, name, _, _ := g.list.RowData(row)
-					g.downloadTorrent(link, name, dirName)
-					g.list.UncheckRow(row)
-					g.progressBar.SetValue(100 * counter / selected)
+				select {
+				case <-g.stopChannel:
+					g.ActivityInterrupted()
+					return
+				default:
+					if g.list.RowSelected(row) {
+						counter++
+						link, _, name, _, _ := g.list.RowData(row)
+						g.DownloadTorrentStarted(row, name)
+						g.downloadTorrent(link, name, dirName)
+						g.DownloadTorrentCompleted(row, 100*counter/selected)
+					}
 				}
 			}
 			time.Sleep(time.Millisecond * 500)
-			g.working(false)
-			g.progressBar.Stop()
+			g.DownloadCompleted()
 		}()
 	})
 
@@ -199,25 +252,48 @@ func (g *Gui) connectEvents() {
 		g.downloadAction.SetDisabled(true)
 	})
 
-	g.searchAction.ConnectTriggered(func(bool) { g.searchButton.Click() })
-	g.downloadAction.ConnectTriggered(func(bool) { g.downloadButton.Click() })
-	g.renameAction.ConnectTriggered(func(checked bool) {
-		dirName := widgets.QFileDialog_GetExistingDirectory(nil, "Select directory with files to rename", core.QDir_HomePath(), widgets.QFileDialog__ReadOnly)
-		g.working(true)
-		g.setStatusMessage("Renaming...", "\uf0c5")
-		g.progressBar.Show()
-		go func() {
-			err := renamer.Rename(dirName)
-			if err != nil {
-				g.working(false)
-				g.progressBar.Stop()
-				g.setErrorStatusMessage("Impossible rename files: " + err.Error())
-				return
+	g.ConnectErrorOccured(func(err error) {
+		g.working(false)
+		g.progressBar.Hide()
+		g.setErrorStatusMessage(err.Error())
+	})
+	g.ConnectActivityInterrupted(func() {
+		g.working(false)
+		g.progressBar.Hide()
+		g.setStatusMessage("Interrupted.", "\uf05e")
+	})
+	g.ConnectSearchCompleted(func(torrents [][]byte) {
+		select {
+		case <-g.stopChannel:
+			g.ActivityInterrupted()
+		default:
+			var t scraper.Torrent
+			g.list.RemoveAllRows()
+			for i := 0; i < len(torrents); i++ {
+				json.Unmarshal(torrents[i], &t)
+				g.list.AddRow(t.Link, t.Magnet, t.Name, t.Info, t.Seeds)
 			}
+			g.list.ResizeAllColumnToContents()
 			g.working(false)
-			g.progressBar.Stop()
-			g.setOkStatusMessage("Files renamed successfully!")
-		}()
+			g.progressBar.Hide()
+		}
+	})
+	g.ConnectDownloadTorrentStarted(func(row int, name string) {
+		g.setStatusMessage("Downloading torrent '"+name+"'", "\uf019")
+	})
+	g.ConnectDownloadTorrentCompleted(func(row, percent int) {
+		g.list.UncheckRow(row)
+		g.progressBar.SetValue(percent)
+	})
+	g.ConnectDownloadCompleted(func() {
+		g.working(false)
+		g.progressBar.Hide()
+		g.setOkStatusMessage("All torrent files downloaded!")
+	})
+	g.ConnectRenameCompleted(func() {
+		g.working(false)
+		g.progressBar.Hide()
+		g.setOkStatusMessage("Files renamed successfully!")
 	})
 
 }
@@ -229,23 +305,33 @@ func (g *Gui) setStatusMessage(message, iconUnicode string) {
 
 func (g *Gui) setErrorStatusMessage(message string) {
 	g.setStatusMessage(message, "\uf071")
-	go func() {
-		time.Sleep(time.Second * 5)
-		g.clearStatusMessage()
-	}()
+	// go func() {
+	// 	time.Sleep(time.Second * 5)
+	// 	g.clearStatusMessage()
+	// }()
 }
 
 func (g *Gui) setOkStatusMessage(message string) {
 	g.setStatusMessage(message, "\uf05d")
-	go func() {
-		time.Sleep(time.Second * 5)
-		g.clearStatusMessage()
-	}()
+	// go func() {
+	// 	time.Sleep(time.Second * 5)
+	// 	g.clearStatusMessage()
+	// }()
 }
 
 func (g *Gui) clearStatusMessage() {
 	g.statusMessage.SetText("")
 	g.statusIcon.SetText("")
+}
+
+func (g *Gui) startProgress(pulse bool) {
+	g.progressBar.SetValue(0)
+	if pulse {
+		g.progressBar.SetMaximum(0)
+	} else {
+		g.progressBar.SetMaximum(100)
+	}
+	g.progressBar.Show()
 }
 
 func (g *Gui) working(freeze bool) {
@@ -280,58 +366,23 @@ func (g *Gui) working(freeze bool) {
 	}
 }
 
-func (g *Gui) search() {
-	if g.searchInput.Text() != "" {
-		g.working(true)
-		g.progressBar.Show()
-		g.setStatusMessage("Searching '"+g.searchInput.Text()+"'...", "\uf002")
-		go func() {
-			torrents, err := scraper.RetrieveTorrents(g.searchInput.Text())
-			g.searchButton.SetDisabled(true)
-			g.searchAction.SetDisabled(true)
-			select {
-			case <-g.stopChannel:
-				g.working(false)
-				g.progressBar.Stop()
-				return
-			default:
-				if err != nil {
-					g.working(false)
-					g.progressBar.Stop()
-					g.handleError(err)
-					return
-				}
-				g.list.RemoveAllRows()
-				for i := 0; i < len(torrents); i++ {
-					g.list.AddRow(torrents[i].Link, torrents[i].Magnet, torrents[i].Name, torrents[i].Info, torrents[i].Seeds)
-				}
-				g.list.ResizeAllColumnToContents()
-				g.working(false)
-				g.progressBar.Stop()
-			}
-		}()
-	}
-}
-
-func (g *Gui) stopSearch() {
-	go func() {
-		g.stopChannel <- true
-	}()
-}
-
 func (g *Gui) downloadTorrent(link, name, destDir string) {
-	g.setStatusMessage("Downloading torrent '"+name+"'", "\uf019")
 	file, err := os.Create(destDir + "/" + name + ".torrent")
-	if g.handleError(err) {
-		defer file.Close()
-		resp, err := http.Get(link)
-		if g.handleError(err) {
-			defer resp.Body.Close()
-			_, err := io.Copy(file, resp.Body)
-			if g.handleError(err) {
-				g.clearStatusMessage()
-			}
-		}
+	if err != nil {
+		g.ErrorOccured(err)
+		return
+	}
+	defer file.Close()
+	resp, err := http.Get(link)
+	if err != nil {
+		g.ErrorOccured(err)
+		return
+	}
+	defer resp.Body.Close()
+	_, err = io.Copy(file, resp.Body)
+	if err != nil {
+		g.ErrorOccured(err)
+		return
 	}
 }
 
@@ -345,12 +396,4 @@ func (g *Gui) applyFilter(filter string) {
 			g.list.SetRowHidden(row, core.NewQModelIndex(), !regexp.MatchString(info))
 		}
 	}
-}
-
-func (g *Gui) handleError(err error) bool {
-	if err != nil {
-		g.setErrorStatusMessage(err.Error())
-		return false
-	}
-	return true
 }

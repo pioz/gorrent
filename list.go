@@ -16,9 +16,11 @@ const torrentMagnetURL = int(core.Qt__UserRole + 2)
 type List struct {
 	core.QObject
 	*widgets.QTreeView
+
 	model *gui.QStandardItemModel
-	_     func() `signal:"checked"`
-	_     func() `signal:"unchecked"`
+
+	_ func() `signal:"checked"`
+	_ func() `signal:"unchecked"`
 }
 
 // MakeList new
