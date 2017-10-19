@@ -18,8 +18,8 @@ var regexp3 = regexp.MustCompile(`(?i)(\d{1,2})\/(\d{1,2})\s`)
 // Rename function rename all series files in the form
 // "seasonNumberxepisodeNumber - episodeTitle". The titles are retrieved by TVDB
 // api.
-func Rename(dirPath string) error {
-	c := tvdb.Client{Apikey: "YOUR API KEY"}
+func Rename(dirPath, apikey, locale string) error {
+	c := tvdb.Client{Apikey: apikey, Language: locale}
 	err := c.Login()
 	if err != nil {
 		return err

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/pioz/gorrent/renamer"
@@ -21,12 +22,14 @@ type Gui struct {
 
 	stopChannel chan bool
 	freeze      bool
+	settings    *core.QSettings
 
 	window         *widgets.QMainWindow
 	menuBar        *widgets.QMenuBar
 	searchAction   *widgets.QAction
 	downloadAction *widgets.QAction
 	renameAction   *widgets.QAction
+	settingsDialog *SettingsDialog
 	toolBar        *widgets.QToolBar
 	searchInput    *widgets.QLineEdit
 	searchButton   *widgets.QPushButton
@@ -39,31 +42,32 @@ type Gui struct {
 	statusIcon     *widgets.QLabel
 	progressBar    *widgets.QProgressBar
 
-	_ func(err error)            `signal:"errorOccured"`
+	_ func(err string)           `signal:"errorOccured"`
 	_ func()                     `signal:"activityInterrupted"`
 	_ func(torrents [][]byte)    `signal:"searchCompleted"`
 	_ func()                     `signal:"downloadCompleted"`
 	_ func(row int, name string) `signal:"downloadTorrentStarted"`
 	_ func(row, percent int)     `signal:"downloadTorrentCompleted"`
-	_ func()                     `signal:"RenameCompleted"`
+	_ func()                     `signal:"renameCompleted"`
+	_ func(settingKey string)    `signal:"editSettingsRequested"`
 }
-
-const defaultRegexp = `ita\s(eng\s)?(mp3|ac3)`
 
 // MakeGui returns new Gui struct
 func MakeGui() *Gui {
 	g := NewGui(nil)
 	g.stopChannel = make(chan bool)
 	g.freeze = false
+	g.settings = core.NewQSettings("pioz", "gorrent", nil)
 	// Constructors
 	g.window = widgets.NewQMainWindow(nil, 0)
 	g.menuBar = widgets.NewQMenuBar(nil)
+	g.settingsDialog = MakeSettingsDialog(g.window, g.settings)
 	g.toolBar = widgets.NewQToolBar2(g.window)
 	g.searchInput = widgets.NewQLineEdit2("Game of Thrones s01", nil)
 	g.searchButton = widgets.NewQPushButton2("Search", nil)
 	g.downloadButton = widgets.NewQPushButton2("Download torrents", nil)
 	g.filterCheckBox = widgets.NewQCheckBox(nil)
-	g.filterInput = widgets.NewQLineEdit2(defaultRegexp, nil)
+	g.filterInput = widgets.NewQLineEdit2(g.settings.Value("search/default_regexp", core.NewQVariant14("")).ToString(), nil)
 	g.list = MakeList()
 	g.statusBar = widgets.NewQStatusBar(g.window)
 	g.statusMessage = widgets.NewQLabel(nil, 0)
@@ -109,6 +113,15 @@ func MakeGui() *Gui {
 	// Setup main window
 	g.window.SetWindowTitle("Gorrent")
 	g.window.SetMinimumSize2(800, 600)
+	size := g.settings.Value("window/size", core.NewQVariant27(core.NewQSize2(800, 600))).ToSize()
+	g.window.Resize(size)
+	screen := gui.QGuiApplication_PrimaryScreen()
+	w := screen.Geometry().Width()
+	h := screen.Geometry().Height()
+	x := w/2 - size.Rwidth()/2
+	y := h/2 - size.Rheight()/2
+	pos := g.settings.Value("window/position", core.NewQVariant29(core.NewQPoint2(x, y))).ToPoint()
+	g.window.Move(pos)
 	g.window.SetWindowIcon(gui.NewQIcon5(":/donkey.png"))
 	g.window.Show()
 
@@ -120,23 +133,28 @@ func (g *Gui) initMenuBar() {
 	g.downloadAction = widgets.NewQAction2("&Download torrents", g.menuBar)
 	g.downloadAction.SetDisabled(true)
 	g.renameAction = widgets.NewQAction2("&Rename series files", g.menuBar)
+	settingsAction := widgets.NewQAction2("&Settings", g.menuBar)
 	quitAction := widgets.NewQAction2("&Quit", g.menuBar)
 	aboutAction := widgets.NewQAction2("&About", g.menuBar)
 
 	g.searchAction.SetShortcut(gui.QKeySequence_FromString("Ctrl+S", 0))
 	g.downloadAction.SetShortcut(gui.QKeySequence_FromString("Ctrl+D", 0))
 	g.renameAction.SetShortcut(gui.QKeySequence_FromString("Ctrl+R", 0))
+	settingsAction.SetShortcuts2(gui.QKeySequence__Preferences)
 	quitAction.SetShortcuts2(gui.QKeySequence__Quit)
 
 	fileMenu := g.menuBar.AddMenu2("&File")
 	fileMenu.AddActions([]*widgets.QAction{g.searchAction, g.downloadAction})
 	fileMenu.AddSeparator()
-	fileMenu.AddActions([]*widgets.QAction{g.renameAction})
-	fileMenu.AddSeparator()
 	fileMenu.AddActions([]*widgets.QAction{quitAction})
+	settingsMenu := g.menuBar.AddMenu2("&Tools")
+	settingsMenu.AddActions([]*widgets.QAction{g.renameAction})
+	settingsMenu.AddSeparator()
+	settingsMenu.AddActions([]*widgets.QAction{settingsAction})
 	helpMenu := g.menuBar.AddMenu2("&Help")
 	helpMenu.AddActions([]*widgets.QAction{aboutAction})
 
+	settingsAction.ConnectTriggered(func(bool) { g.settingsDialog.Exec("") })
 	quitAction.ConnectTriggered(func(bool) { g.window.Close() })
 	aboutAction.ConnectTriggered(func(bool) {
 		widgets.QMessageBox_About(g.window, "Gorrent",
@@ -148,23 +166,33 @@ func (g *Gui) initMenuBar() {
 }
 
 func (g *Gui) connectEvents() {
+	g.settingsDialog.ConnectSettingsSaved(func() {
+		g.filterInput.SetText(g.settings.Value("search/default_regexp", core.NewQVariant14("")).ToString())
+	})
 	g.searchAction.ConnectTriggered(func(bool) { g.searchButton.Click() })
 	g.downloadAction.ConnectTriggered(func(bool) { g.downloadButton.Click() })
 	g.renameAction.ConnectTriggered(func(checked bool) {
-		dirName := widgets.QFileDialog_GetExistingDirectory(nil, "Select directory with files to rename", core.QDir_HomePath(), widgets.QFileDialog__ReadOnly)
-		g.working(true)
-		g.startProgress(true)
-		g.searchAction.SetDisabled(true)
-		g.searchButton.SetDisabled(true)
-		g.setStatusMessage("Renaming...", "\uf0c5")
-		go func() {
-			err := renamer.Rename(dirName)
-			if err != nil {
-				g.ErrorOccured(err)
-				return
-			}
-			g.RenameCompleted()
-		}()
+		dirName := openFileDialog(g.settings, "paths/rename", core.QDir_HomePath(), "Select directory with files to rename", true)
+		if dirName != "" {
+			g.working(true)
+			g.startProgress(true)
+			g.searchAction.SetDisabled(true)
+			g.searchButton.SetDisabled(true)
+			g.setStatusMessage("Renaming...", "\uf0c5")
+			go func() {
+				err := renamer.Rename(dirName, g.settings.Value("tvdb/apikey", core.NewQVariant14("")).ToString(), g.settings.Value("tvdb/locale", core.NewQVariant14("en")).ToString())
+				if err != nil {
+					if strings.Contains(err.Error(), "401") {
+						g.ErrorOccured(err.Error() + ". Is TVDB apikey valid? Try to change it on prefereces dialog.")
+						g.EditSettingsRequested("tvdb/apikey")
+					} else {
+						g.ErrorOccured(err.Error())
+					}
+					return
+				}
+				g.RenameCompleted()
+			}()
+		}
 	})
 
 	g.searchInput.ConnectReturnPressed(func() { g.searchButton.Click() })
@@ -178,7 +206,7 @@ func (g *Gui) connectEvents() {
 				go func() {
 					torrents, err := scraper.RetrieveTorrents(g.searchInput.Text())
 					if err != nil {
-						g.ErrorOccured(err)
+						g.ErrorOccured(err.Error())
 						return
 					}
 					g.SearchCompleted(torrents)
@@ -194,34 +222,32 @@ func (g *Gui) connectEvents() {
 	})
 
 	g.downloadButton.ConnectClicked(func(checked bool) {
-		path := core.QDir_HomePath() + "/Desktop"
-		if !core.NewQDir2(path).Exists2() {
-			path = core.QDir_HomePath()
-		}
-		dirName := widgets.QFileDialog_GetExistingDirectory(nil, "Save torrent files", path, widgets.QFileDialog__ReadOnly)
-		g.working(true)
-		g.startProgress(false)
-		selected := g.list.RowsSelected()
-		go func() {
-			counter := 0
-			for row := 0; row < g.list.RowCount(); row++ {
-				select {
-				case <-g.stopChannel:
-					g.ActivityInterrupted()
-					return
-				default:
-					if g.list.RowSelected(row) {
-						counter++
-						link, _, name, _, _ := g.list.RowData(row)
-						g.DownloadTorrentStarted(row, name)
-						g.downloadTorrent(link, name, dirName)
-						g.DownloadTorrentCompleted(row, 100*counter/selected)
+		dirName := openFileDialog(g.settings, "paths/download", core.QDir_HomePath(), "Save torrent files in", false)
+		if dirName != "" {
+			g.working(true)
+			g.startProgress(false)
+			selected := g.list.RowsSelected()
+			go func() {
+				counter := 0
+				for row := 0; row < g.list.RowCount(); row++ {
+					select {
+					case <-g.stopChannel:
+						g.ActivityInterrupted()
+						return
+					default:
+						if g.list.RowSelected(row) {
+							counter++
+							link, _, name, _, _ := g.list.RowData(row)
+							g.DownloadTorrentStarted(row, name)
+							g.downloadTorrent(link, name, dirName)
+							g.DownloadTorrentCompleted(row, 100*counter/selected)
+						}
 					}
 				}
-			}
-			time.Sleep(time.Millisecond * 500)
-			g.DownloadCompleted()
-		}()
+				time.Sleep(time.Millisecond * 500)
+				g.DownloadCompleted()
+			}()
+		}
 	})
 
 	g.filterCheckBox.ConnectClicked(func(checked bool) {
@@ -236,7 +262,7 @@ func (g *Gui) connectEvents() {
 
 	g.filterInput.ConnectReturnPressed(func() {
 		if g.filterInput.Text() == "" {
-			g.filterInput.SetText(defaultRegexp)
+			g.filterInput.SetText(g.settings.Value("search/default_regexp", core.NewQVariant14("")).ToString())
 		}
 		if g.filterCheckBox.IsChecked() {
 			g.applyFilter(g.filterInput.Text())
@@ -252,10 +278,14 @@ func (g *Gui) connectEvents() {
 		g.downloadAction.SetDisabled(true)
 	})
 
-	g.ConnectErrorOccured(func(err error) {
+	g.statusMessage.ConnectMouseDoubleClickEvent(func(event *gui.QMouseEvent) {
+		g.clearStatusMessage()
+	})
+
+	g.ConnectErrorOccured(func(err string) {
 		g.working(false)
 		g.progressBar.Hide()
-		g.setErrorStatusMessage(err.Error())
+		g.setErrorStatusMessage(err)
 	})
 	g.ConnectActivityInterrupted(func() {
 		g.working(false)
@@ -293,9 +323,12 @@ func (g *Gui) connectEvents() {
 	g.ConnectRenameCompleted(func() {
 		g.working(false)
 		g.progressBar.Hide()
-		g.setOkStatusMessage("Files renamed successfully!")
+		g.setOkStatusMessage("Files have been renamed successfully!")
 	})
-
+	g.ConnectEditSettingsRequested(func(settingKey string) {
+		g.settingsDialog.Exec(settingKey)
+		g.clearStatusMessage()
+	})
 }
 
 func (g *Gui) setStatusMessage(message, iconUnicode string) {
@@ -369,19 +402,19 @@ func (g *Gui) working(freeze bool) {
 func (g *Gui) downloadTorrent(link, name, destDir string) {
 	file, err := os.Create(destDir + "/" + name + ".torrent")
 	if err != nil {
-		g.ErrorOccured(err)
+		g.ErrorOccured(err.Error())
 		return
 	}
 	defer file.Close()
 	resp, err := http.Get(link)
 	if err != nil {
-		g.ErrorOccured(err)
+		g.ErrorOccured(err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	_, err = io.Copy(file, resp.Body)
 	if err != nil {
-		g.ErrorOccured(err)
+		g.ErrorOccured(err.Error())
 		return
 	}
 }
@@ -396,4 +429,30 @@ func (g *Gui) applyFilter(filter string) {
 			g.list.SetRowHidden(row, core.NewQModelIndex(), !regexp.MatchString(info))
 		}
 	}
+}
+
+// SyncSettings sync the app settings
+func (g *Gui) SyncSettings() {
+	g.settings.SetValue("window/size", core.NewQVariant27(g.window.Size()))
+	g.settings.SetValue("window/position", core.NewQVariant29(g.window.Pos()))
+	g.settings.Sync()
+}
+
+func openFileDialog(settings *core.QSettings, settingKey, defaultDir, title string, cdUp bool) string {
+	openDir := core.NewQDir2(settings.Value(settingKey, core.NewQVariant14(defaultDir)).ToString())
+	if !openDir.Exists2() {
+		openDir = core.QDir_Home()
+	}
+	dirName := widgets.QFileDialog_GetExistingDirectory(nil, title, openDir.AbsolutePath(), widgets.QFileDialog__ReadOnly)
+	if dirName == "" {
+		return ""
+	}
+	path := core.NewQDir2(dirName)
+	if cdUp {
+		path.CdUp()
+	}
+	if path.AbsolutePath() != openDir.AbsolutePath() {
+		settings.SetValue(settingKey, core.NewQVariant14(path.AbsolutePath()))
+	}
+	return dirName
 }

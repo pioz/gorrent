@@ -17,6 +17,9 @@ func main() {
 	if gui.QFontDatabase_AddApplicationFont(":/FontAwesome.otf") < 0 {
 		fmt.Println("Impossible to load FontAwesome")
 	}
-	MakeGui()
+	gui := MakeGui()
+	app.ConnectLastWindowClosed(func() {
+		gui.SyncSettings()
+	})
 	app.Exec()
 }
