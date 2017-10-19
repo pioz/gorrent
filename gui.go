@@ -286,6 +286,9 @@ func (g *Gui) connectEvents() {
 			g.list.ResizeAllColumnToContents()
 			g.working(false)
 			g.statusBar.ProgressBar.Hide()
+			if len(torrents) == 0 {
+				g.statusBar.SetStatusMessage("No torrents found!", "\uf119")
+			}
 		}
 	})
 	g.ConnectDownloadTorrentStarted(func(row int, name string) {
