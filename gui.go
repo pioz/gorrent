@@ -37,10 +37,7 @@ type Gui struct {
 	filterCheckBox *widgets.QCheckBox
 	filterInput    *widgets.QLineEdit
 	list           *List
-	statusBar      *widgets.QStatusBar
-	statusMessage  *widgets.QLabel
-	statusIcon     *widgets.QLabel
-	progressBar    *widgets.QProgressBar
+	statusBar      *StatusBar
 
 	_ func(err string)           `signal:"errorOccured"`
 	_ func()                     `signal:"activityInterrupted"`
@@ -69,10 +66,7 @@ func MakeGui() *Gui {
 	g.filterCheckBox = widgets.NewQCheckBox(nil)
 	g.filterInput = widgets.NewQLineEdit2(g.settings.Value("search/default_regexp", core.NewQVariant14("")).ToString(), nil)
 	g.list = MakeList()
-	g.statusBar = widgets.NewQStatusBar(g.window)
-	g.statusMessage = widgets.NewQLabel(nil, 0)
-	g.statusIcon = widgets.NewQLabel(nil, 0)
-	g.progressBar = widgets.NewQProgressBar(nil)
+	g.statusBar = MakeStatusBar()
 	// Custom init
 	g.initMenuBar()
 	g.connectEvents()
@@ -99,17 +93,7 @@ func MakeGui() *Gui {
 	scrollArea.SetWidgetResizable(true)
 	g.window.SetCentralWidget(scrollArea)
 	// Setup statusBar widgets
-	g.statusIcon.SetFont(gui.NewQFont2("FontAwesome", 14, 0, false))
-	g.statusIcon.SetContentsMargins(5, 0, 0, 0)
-	g.statusBar.AddWidget(g.statusIcon, 0)
-	g.statusBar.AddWidget(g.statusMessage, 0)
-	g.progressBar.SetMinimum(0)
-	g.progressBar.SetMaximum(100)
-	g.progressBar.SetFixedWidth(200)
-	g.progressBar.Hide()
-	g.statusBar.AddPermanentWidget(g.progressBar, 0)
-	g.statusBar.SetStyleSheet("QStatusBar::item { border: 0px}")
-	g.window.SetStatusBar(g.statusBar)
+	g.window.SetStatusBar(g.statusBar.QStatusBar)
 	// Setup main window
 	g.window.SetWindowTitle("Gorrent")
 	g.window.SetMinimumSize2(800, 600)
@@ -329,42 +313,6 @@ func (g *Gui) connectEvents() {
 		g.settingsDialog.Exec(settingKey)
 		g.clearStatusMessage()
 	})
-}
-
-func (g *Gui) setStatusMessage(message, iconUnicode string) {
-	g.statusMessage.SetText(message)
-	g.statusIcon.SetText(iconUnicode)
-}
-
-func (g *Gui) setErrorStatusMessage(message string) {
-	g.setStatusMessage(message, "\uf071")
-	// go func() {
-	// 	time.Sleep(time.Second * 5)
-	// 	g.clearStatusMessage()
-	// }()
-}
-
-func (g *Gui) setOkStatusMessage(message string) {
-	g.setStatusMessage(message, "\uf05d")
-	// go func() {
-	// 	time.Sleep(time.Second * 5)
-	// 	g.clearStatusMessage()
-	// }()
-}
-
-func (g *Gui) clearStatusMessage() {
-	g.statusMessage.SetText("")
-	g.statusIcon.SetText("")
-}
-
-func (g *Gui) startProgress(pulse bool) {
-	g.progressBar.SetValue(0)
-	if pulse {
-		g.progressBar.SetMaximum(0)
-	} else {
-		g.progressBar.SetMaximum(100)
-	}
-	g.progressBar.Show()
 }
 
 func (g *Gui) working(freeze bool) {
