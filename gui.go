@@ -159,10 +159,10 @@ func (g *Gui) connectEvents() {
 		dirName := openFileDialog(g.settings, "paths/rename", core.QDir_HomePath(), "Select directory with files to rename", true)
 		if dirName != "" {
 			g.working(true)
-			g.startProgress(true)
+			g.statusBar.StartProgress(true)
 			g.searchAction.SetDisabled(true)
 			g.searchButton.SetDisabled(true)
-			g.setStatusMessage("Renaming...", "\uf0c5")
+			g.statusBar.SetStatusMessage("Renaming...", "\uf0c5")
 			go func() {
 				err := renamer.Rename(dirName, g.settings.Value("tvdb/apikey", core.NewQVariant14("")).ToString(), g.settings.Value("tvdb/locale", core.NewQVariant14("en")).ToString())
 				if err != nil {
@@ -185,8 +185,8 @@ func (g *Gui) connectEvents() {
 		if !g.freeze {
 			if g.searchInput.Text() != "" {
 				g.working(true)
-				g.startProgress(true)
-				g.setStatusMessage("Searching '"+g.searchInput.Text()+"'...", "\uf002")
+				g.statusBar.StartProgress(true)
+				g.statusBar.SetStatusMessage("Searching '"+g.searchInput.Text()+"'...", "\uf002")
 				go func() {
 					torrents, err := scraper.RetrieveTorrents(g.searchInput.Text())
 					if err != nil {
@@ -209,7 +209,7 @@ func (g *Gui) connectEvents() {
 		dirName := openFileDialog(g.settings, "paths/download", core.QDir_HomePath(), "Save torrent files in", false)
 		if dirName != "" {
 			g.working(true)
-			g.startProgress(false)
+			g.statusBar.StartProgress(false)
 			selected := g.list.RowsSelected()
 			go func() {
 				counter := 0
@@ -262,19 +262,15 @@ func (g *Gui) connectEvents() {
 		g.downloadAction.SetDisabled(true)
 	})
 
-	g.statusMessage.ConnectMouseDoubleClickEvent(func(event *gui.QMouseEvent) {
-		g.clearStatusMessage()
-	})
-
 	g.ConnectErrorOccured(func(err string) {
 		g.working(false)
-		g.progressBar.Hide()
-		g.setErrorStatusMessage(err)
+		g.statusBar.ProgressBar.Hide()
+		g.statusBar.SetErrorStatusMessage(err)
 	})
 	g.ConnectActivityInterrupted(func() {
 		g.working(false)
-		g.progressBar.Hide()
-		g.setStatusMessage("Interrupted.", "\uf05e")
+		g.statusBar.ProgressBar.Hide()
+		g.statusBar.SetStatusMessage("Interrupted.", "\uf05e")
 	})
 	g.ConnectSearchCompleted(func(torrents [][]byte) {
 		select {
@@ -289,29 +285,29 @@ func (g *Gui) connectEvents() {
 			}
 			g.list.ResizeAllColumnToContents()
 			g.working(false)
-			g.progressBar.Hide()
+			g.statusBar.ProgressBar.Hide()
 		}
 	})
 	g.ConnectDownloadTorrentStarted(func(row int, name string) {
-		g.setStatusMessage("Downloading torrent '"+name+"'", "\uf019")
+		g.statusBar.SetStatusMessage("Downloading torrent '"+name+"'", "\uf019")
 	})
 	g.ConnectDownloadTorrentCompleted(func(row, percent int) {
 		g.list.UncheckRow(row)
-		g.progressBar.SetValue(percent)
+		g.statusBar.ProgressBar.SetValue(percent)
 	})
 	g.ConnectDownloadCompleted(func() {
 		g.working(false)
-		g.progressBar.Hide()
-		g.setOkStatusMessage("All torrent files downloaded!")
+		g.statusBar.ProgressBar.Hide()
+		g.statusBar.SetOkStatusMessage("All torrent files downloaded!")
 	})
 	g.ConnectRenameCompleted(func() {
 		g.working(false)
-		g.progressBar.Hide()
-		g.setOkStatusMessage("Files have been renamed successfully!")
+		g.statusBar.ProgressBar.Hide()
+		g.statusBar.SetOkStatusMessage("Files have been renamed successfully!")
 	})
 	g.ConnectEditSettingsRequested(func(settingKey string) {
 		g.settingsDialog.Exec(settingKey)
-		g.clearStatusMessage()
+		g.statusBar.ClearStatusMessage()
 	})
 }
 
@@ -341,7 +337,7 @@ func (g *Gui) working(freeze bool) {
 			g.filterCheckBox.SetDisabled(true)
 			g.filterInput.SetDisabled(true)
 		}
-		g.clearStatusMessage()
+		g.statusBar.ClearStatusMessage()
 		g.searchInput.SetFocus2()
 		g.searchInput.SetSelection(0, len(g.searchInput.Text()))
 	}
@@ -370,7 +366,7 @@ func (g *Gui) downloadTorrent(link, name, destDir string) {
 func (g *Gui) applyFilter(filter string) {
 	regexp, err := regexp.Compile("(?i)" + g.filterInput.Text())
 	if err != nil {
-		g.setErrorStatusMessage("Invalid filter regexp")
+		g.statusBar.SetErrorStatusMessage("Invalid filter regexp")
 	} else {
 		for row := 0; row < g.list.RowCount(); row++ {
 			_, _, _, info, _ := g.list.RowData(row)
