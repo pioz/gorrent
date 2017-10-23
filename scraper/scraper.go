@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/therecipe/qt/core"
 )
 
 // Torrent type
@@ -23,10 +24,17 @@ type Torrent struct {
 	Info   string
 }
 
+// Scraper type
+type Scraper struct {
+	core.QObject
+
+	_ func(torrents [][]byte, err error) `signal:"searchCompleted"`
+}
+
 const endPointURL string = "http://www.tntvillage.scambioetico.org/src/releaselist.php"
 
 // RetrieveTorrents func
-func RetrieveTorrents(q string) ([][]byte, error) {
+func (s *Scraper) RetrieveTorrents(q string) {
 	var (
 		pages    int
 		torrents [][]byte
@@ -35,17 +43,20 @@ func RetrieveTorrents(q string) ([][]byte, error) {
 	for page := 1; page <= pages && page <= 10; page++ {
 		resp, err := http.PostForm(endPointURL, url.Values{"srcrel": {url.QueryEscape(q)}, "page": {strconv.Itoa(page)}})
 		if err != nil {
-			return nil, err
+			//return nil, err
+			s.SearchCompleted(nil, err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
 			errorMessage := fmt.Sprintf("Get a response with status code %d", resp.StatusCode)
-			return nil, errors.New(errorMessage)
+			//return nil, errors.New(errorMessage)
+			s.SearchCompleted(nil, errors.New(errorMessage))
 		}
 
 		doc, err := goquery.NewDocumentFromResponse(resp)
 		if err != nil {
-			return nil, err
+			//return nil, err
+			s.SearchCompleted(nil, err)
 		}
 		if page == 1 {
 			p, _ := doc.Find(".total").First().Attr("a")
@@ -67,8 +78,9 @@ func RetrieveTorrents(q string) ([][]byte, error) {
 			}
 		})
 	}
-
-	return torrents, nil
+	//return torrents, nil
+	fmt.Println("Search completed")
+	s.SearchCompleted(torrents, nil)
 }
 
 // DownloadTorrent download the torrent file reached by link and save it in a

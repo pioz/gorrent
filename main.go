@@ -7,6 +7,7 @@ import (
 	"github.com/nicksnyder/go-i18n/i18n"
 	g "github.com/pioz/gorrent/gui"
 	t "github.com/pioz/gorrent/i18n"
+	"github.com/pioz/gorrent/scraper"
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
@@ -32,6 +33,9 @@ func main() {
 	// app.InstallTranslator(translator1)
 
 	gui := g.MakeGui(settings)
+	scraper := scraper.NewScraper(nil)
+	gui.ConnectSearchRequested(func(q string) { go func() { scraper.RetrieveTorrents(q) }() })
+	scraper.ConnectSearchCompleted(gui.SearchCompleted)
 	app.ConnectLastWindowClosed(func() {
 		gui.SyncSettings()
 	})

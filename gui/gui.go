@@ -2,6 +2,7 @@ package gui
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -37,14 +38,16 @@ type Gui struct {
 	list           *List
 	statusBar      *StatusBar
 
-	_ func(err string)           `signal:"errorOccured"`
-	_ func()                     `signal:"activityInterrupted"`
-	_ func(torrents [][]byte)    `signal:"searchCompleted"`
+	_ func(err string) `signal:"errorOccured"`
+	_ func()           `signal:"activityInterrupted"`
+	//_ func(torrents [][]byte)    `signal:"searchCompleted"`
 	_ func()                     `signal:"downloadCompleted"`
 	_ func(row int, name string) `signal:"downloadTorrentStarted"`
 	_ func(row, percent int)     `signal:"downloadTorrentCompleted"`
 	_ func()                     `signal:"renameCompleted"`
 	_ func(settingKey string)    `signal:"editSettingsRequested"`
+
+	_ func(q string) `signal:"searchRequested"`
 }
 
 // MakeGui returns new Gui struct
@@ -177,7 +180,7 @@ func (g *Gui) connectEvents() {
 		g.statusBar.ProgressBar.Hide()
 		g.statusBar.SetStatusMessage("Interrupted.", "\uf05e")
 	})
-	g.ConnectSearchCompleted(g.onSearchCompleted)
+	//g.ConnectSearchCompleted(g.onSearchCompleted)
 	g.ConnectDownloadTorrentStarted(func(row int, name string) {
 		g.statusBar.SetStatusMessage("Downloading torrent '"+name+"'", "\uf019")
 	})
@@ -297,14 +300,15 @@ func (g *Gui) onSearch(checked bool) {
 			g.working(true)
 			g.statusBar.StartProgress(true)
 			g.statusBar.SetStatusMessage("Searching '"+g.searchInput.Text()+"'...", "\uf002")
-			go func() {
-				torrents, err := scraper.RetrieveTorrents(g.searchInput.Text())
-				if err != nil {
-					g.ErrorOccured(err.Error())
-					return
-				}
-				g.SearchCompleted(torrents)
-			}()
+			g.SearchRequested(g.searchInput.Text())
+			// go func() {
+			// 	torrents, err := scraper.RetrieveTorrents(g.searchInput.Text())
+			// 	if err != nil {
+			// 		g.ErrorOccured(err.Error())
+			// 		return
+			// 	}
+			// 	g.SearchCompleted(torrents)
+			// }()
 		}
 	} else {
 		g.searchAction.SetDisabled(true)
@@ -312,6 +316,32 @@ func (g *Gui) onSearch(checked bool) {
 		go func() {
 			g.stopChannel <- true
 		}()
+	}
+}
+
+// SearchCompleted slot
+func (g *Gui) SearchCompleted(torrents [][]byte, err error) {
+	if err != nil {
+		fmt.Println("ERROR")
+		g.ErrorOccured(err.Error())
+		return
+	}
+	select {
+	case <-g.stopChannel:
+		g.ActivityInterrupted()
+	default:
+		var t scraper.Torrent
+		g.list.RemoveAllRows()
+		for i := 0; i < len(torrents); i++ {
+			json.Unmarshal(torrents[i], &t)
+			g.list.AddRow(t.Link, t.Magnet, t.Name, t.Info, t.Seeds)
+		}
+		g.list.ResizeAllColumnToContents()
+		g.working(false)
+		g.statusBar.ProgressBar.Hide()
+		if len(torrents) == 0 {
+			g.statusBar.SetStatusMessage("No torrents found!", "\uf119")
+		}
 	}
 }
 
