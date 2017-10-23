@@ -19,6 +19,9 @@ var regexp3 = regexp.MustCompile(`(?i)(\d{1,2})\/(\d{1,2})\s`)
 // "seasonNumberxepisodeNumber - episodeTitle". The titles are retrieved by TVDB
 // api.
 func Rename(dirPath, apikey, locale string) error {
+	if locale == "" {
+		locale = "en"
+	}
 	c := tvdb.Client{Apikey: apikey, Language: locale}
 	err := c.Login()
 	if err != nil {

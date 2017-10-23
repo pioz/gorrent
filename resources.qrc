@@ -2,5 +2,8 @@
   <qresource prefix="/">
     <file alias="FontAwesome.otf">qrc/FontAwesome.otf</file>
     <file alias="donkey.png">qrc/donkey.png</file>
+
+    <file alias="en.json">locales/en.json</file>
+    <file alias="it.json">locales/it.json</file>
   </qresource>
 </RCC>

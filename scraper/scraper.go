@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -67,4 +69,24 @@ func RetrieveTorrents(q string) ([][]byte, error) {
 	}
 
 	return torrents, nil
+}
+
+// DownloadTorrent download the torrent file reached by link and save it in a
+// file named name.torrent inside destDir
+func DownloadTorrent(link, name, destDir string) error {
+	file, err := os.Create(destDir + "/" + name + ".torrent")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	resp, err := http.Get(link)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, err = io.Copy(file, resp.Body)
+	if err != nil {
+		return err
+	}
+	return nil
 }
