@@ -3,6 +3,8 @@
 A simple program to download torrent files written in [GO](https://golang.org/)
 and [QT](https://github.com/therecipe/qt).
 
+![Screenshot](https://i.imgur.com/dXXvLkQ.png)
+
 ## Download
 
 * OSX: [download here]()
