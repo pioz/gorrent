@@ -2,15 +2,19 @@ package scraper
 
 import (
 	"testing"
+	"time"
 )
 
 func TestGetBody(t *testing.T) {
-	torrents, err := RetrieveTorrents("Trono di spade s01")
-	if err != nil {
+	s := NewScraper(nil)
+	s.ConnectSearchCompleted(func(torrents [][]byte) {
+		if len(torrents) != 25 {
+			t.Fatalf("Get a invalid number of torrents: expected 25, have %d", len(torrents))
+		}
+	})
+	s.ConnectErrorOccured(func(err string) {
 		t.Fatal(err)
-	}
-	t.Log(torrents)
-	if len(torrents) != 25 {
-		t.Fatalf("Get a invalid number of torrents: expected 25, have %d", len(torrents))
-	}
+	})
+	s.RetrieveTorrents("Trono di spade s01")
+	time.Sleep(time.Second)
 }

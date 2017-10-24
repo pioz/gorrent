@@ -8,5 +8,6 @@ import (
 
 func TestRename(t *testing.T) {
 	settings := core.NewQSettings("pioz", "gorrent", nil)
-	Rename("/Users/pioz/Desktop/Fringe", settings.Value("tvdb/apikey", core.NewQVariant14("")).ToString(), settings.Value("tvdb/locale", core.NewQVariant14("en")).ToString())
+	r := MakeRenamer(settings)
+	r.Rename("/Users/pioz/Desktop/Fringe")
 }
