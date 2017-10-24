@@ -8,7 +8,8 @@ and [QT](https://github.com/therecipe/qt).
 ## Download
 
 * OSX: [download here](https://github.com/pioz/gorrent/blob/master/releases/Gorrent-osx-0.1.0.dmg?raw=true)
-* Windows: [download here]()
+* Windows 32bit: [download here](https://github.com/pioz/gorrent/blob/master/releases/Gorrent-win32-0.1.0.zip?raw=true)
+* Windows 64bit: [download here](https://github.com/pioz/gorrent/blob/master/releases/Gorrent-win64-0.1.0.zip?raw=true)
 
 ## Build
 
