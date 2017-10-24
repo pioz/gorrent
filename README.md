@@ -7,7 +7,7 @@ and [QT](https://github.com/therecipe/qt).
 
 ## Download
 
-* OSX: [download here]()
+* OSX: [download here](https://github.com/pioz/gorrent/blob/master/releases/Gorrent-osx-0.1.0.dmg?raw=true)
 * Windows: [download here]()
 
 ## Build
