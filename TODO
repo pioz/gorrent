@@ -1,2 +1,3 @@
 * Components communicate with signals/slot pattern
+* Use constructors (INIT)
 * i18n

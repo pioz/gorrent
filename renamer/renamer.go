@@ -1,7 +1,6 @@
 package renamer
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,35 +8,64 @@ import (
 	"strconv"
 
 	"github.com/pioz/tvdb"
+	"github.com/therecipe/qt/core"
 )
 
 var regexp1 = regexp.MustCompile(`(?i)(\d{1,2})x(\d{1,2})`)
 var regexp2 = regexp.MustCompile(`(?i)s(\d{1,2})\w?_?e(\d{1,2})`)
 var regexp3 = regexp.MustCompile(`(?i)(\d{1,2})\/(\d{1,2})\s`)
 
+// Renamer struct
+type Renamer struct {
+	core.QObject
+	settings *core.QSettings
+	client   tvdb.Client
+
+	_ func(string) `signal:"errorOccured"`
+	_ func()       `signal:"renameSeriesCompleted"`
+}
+
+// MakeRenamer returns a new Renamer struct
+func MakeRenamer(settings *core.QSettings) *Renamer {
+	r := NewRenamer(nil)
+	r.settings = settings
+	r.client = tvdb.Client{}
+	r.UpdateSettings()
+	return r
+}
+
+// UpdateSettings slot
+func (r *Renamer) UpdateSettings() {
+	r.client.Apikey = r.settings.Value("tvdb/apikey", core.NewQVariant14("")).ToString()
+	r.client.Language = r.settings.Value("tvdb/locale", core.NewQVariant14("en")).ToString()
+	if r.client.Language == "" {
+		r.client.Language = "en"
+	}
+}
+
 // Rename function rename all series files in the form
 // "seasonNumberxepisodeNumber - episodeTitle". The titles are retrieved by TVDB
 // api.
-func Rename(dirPath, apikey, locale string) error {
-	if locale == "" {
-		locale = "en"
-	}
-	c := tvdb.Client{Apikey: apikey, Language: locale}
-	err := c.Login()
+func (r *Renamer) Rename(dirPath string) {
+	err := r.client.Login()
 	if err != nil {
-		return err
+		r.ErrorOccured(err.Error())
+		return
 	}
 	seriesName := filepath.Base(dirPath)
-	series, err := c.BestSearch(seriesName)
+	series, err := r.client.BestSearch(seriesName)
 	if err != nil {
 		if tvdb.HaveCodeError(404, err) {
-			return errors.New("\"" + seriesName + "\" series not found")
+			r.ErrorOccured("\"" + seriesName + "\" series not found")
+			return
 		}
-		return err
+		r.ErrorOccured(err.Error())
+		return
 	}
-	err = c.GetSeriesEpisodes(&series, nil)
+	err = r.client.GetSeriesEpisodes(&series, nil)
 	if err != nil {
-		return err
+		r.ErrorOccured(err.Error())
+		return
 	}
 	filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
@@ -48,7 +76,7 @@ func Rename(dirPath, apikey, locale string) error {
 		}
 		return nil
 	})
-	return nil
+	r.RenameSeriesCompleted()
 }
 
 func titleToCode(title string) (int, int) {

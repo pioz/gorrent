@@ -2,14 +2,11 @@ package gui
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
+	"github.com/pioz/gorrent/common"
 	t "github.com/pioz/gorrent/i18n"
-	"github.com/pioz/gorrent/renamer"
-	"github.com/pioz/gorrent/scraper"
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
@@ -19,9 +16,8 @@ import (
 type Gui struct {
 	core.QObject
 
-	stopChannel chan bool
-	freeze      bool
-	settings    *core.QSettings
+	freeze   bool
+	settings *core.QSettings
 
 	window         *widgets.QMainWindow
 	menuBar        *widgets.QMenuBar
@@ -38,22 +34,15 @@ type Gui struct {
 	list           *List
 	statusBar      *StatusBar
 
-	_ func(err string) `signal:"errorOccured"`
-	_ func()           `signal:"activityInterrupted"`
-	//_ func(torrents [][]byte)    `signal:"searchCompleted"`
-	_ func()                     `signal:"downloadCompleted"`
-	_ func(row int, name string) `signal:"downloadTorrentStarted"`
-	_ func(row, percent int)     `signal:"downloadTorrentCompleted"`
-	_ func()                     `signal:"renameCompleted"`
-	_ func(settingKey string)    `signal:"editSettingsRequested"`
-
-	_ func(q string) `signal:"searchRequested"`
+	_ func(string)                 `signal:"searchRequested"`
+	_ func(map[int][]byte, string) `signal:"downloadTorrentRequested"`
+	_ func(string)                 `signal:"renameSeriesRequested"`
+	_ func()                       `signal:"settingsSaved"`
 }
 
 // MakeGui returns new Gui struct
 func MakeGui(settings *core.QSettings) *Gui {
 	g := NewGui(nil)
-	g.stopChannel = make(chan bool)
 	g.freeze = false
 	g.settings = settings
 	// Constructors
@@ -153,15 +142,18 @@ func (g *Gui) initMenuBar() {
 func (g *Gui) connectEvents() {
 	g.settingsDialog.ConnectSettingsSaved(func() {
 		g.filterInput.SetText(g.settings.Value("gorrent/default_regexp", core.NewQVariant14("")).ToString())
+		g.SettingsSaved()
 	})
+
 	g.searchAction.ConnectTriggered(func(bool) { g.searchButton.Click() })
 	g.downloadAction.ConnectTriggered(func(bool) { g.downloadButton.Click() })
-	g.renameAction.ConnectTriggered(g.onRenameSeriesFilesStart)
+	g.renameAction.ConnectTriggered(g.onRenameSeries)
 	g.searchInput.ConnectReturnPressed(func() { g.searchButton.Click() })
-	g.searchButton.ConnectClicked(g.onSearch)
-	g.downloadButton.ConnectClicked(g.onDownloadTorrents)
-	g.filterCheckBox.ConnectClicked(g.onFilter)
-	g.filterInput.ConnectReturnPressed(g.onFilterReturnPressed)
+	g.searchButton.ConnectClicked(g.search)
+	g.downloadButton.ConnectClicked(g.downloadTorrents)
+	g.filterCheckBox.ConnectClicked(g.filter)
+	g.filterInput.ConnectReturnPressed(g.filterReturnPressed)
+
 	g.list.ConnectChecked(func() {
 		g.downloadButton.SetDisabled(false)
 		g.downloadAction.SetDisabled(false)
@@ -170,43 +162,12 @@ func (g *Gui) connectEvents() {
 		g.downloadButton.SetDisabled(true)
 		g.downloadAction.SetDisabled(true)
 	})
-	g.ConnectErrorOccured(func(err string) {
-		g.working(false)
-		g.statusBar.ProgressBar.Hide()
-		g.statusBar.SetErrorStatusMessage(err)
-	})
-	g.ConnectActivityInterrupted(func() {
-		g.working(false)
-		g.statusBar.ProgressBar.Hide()
-		g.statusBar.SetStatusMessage("Interrupted.", "\uf05e")
-	})
-	//g.ConnectSearchCompleted(g.onSearchCompleted)
-	g.ConnectDownloadTorrentStarted(func(row int, name string) {
-		g.statusBar.SetStatusMessage("Downloading torrent '"+name+"'", "\uf019")
-	})
-	g.ConnectDownloadTorrentCompleted(func(row, percent int) {
-		g.list.UncheckRow(row)
-		g.statusBar.ProgressBar.SetValue(percent)
-	})
-	g.ConnectDownloadCompleted(func() {
-		g.working(false)
-		g.statusBar.ProgressBar.Hide()
-		g.statusBar.SetOkStatusMessage("All torrent files downloaded!")
-	})
-	g.ConnectRenameCompleted(func() {
-		g.working(false)
-		g.statusBar.ProgressBar.Hide()
-		g.statusBar.SetOkStatusMessage("Files have been renamed successfully!")
-	})
-	g.ConnectEditSettingsRequested(func(settingKey string) {
-		g.settingsDialog.Exec(settingKey)
-		g.statusBar.ClearStatusMessage()
-	})
 }
 
 func (g *Gui) working(freeze bool) {
 	g.freeze = freeze
-	g.searchButton.SetChecked(freeze)
+	g.searchButton.SetDisabled(freeze)
+	g.searchAction.SetDisabled(freeze)
 	g.searchInput.SetDisabled(freeze)
 	g.downloadButton.SetDisabled(freeze)
 	g.downloadAction.SetDisabled(freeze)
@@ -216,13 +177,7 @@ func (g *Gui) working(freeze bool) {
 	g.list.SetDisabled(freeze)
 	if freeze {
 		g.filterCheckBox.SetChecked(false)
-		g.searchButton.SetText("Stop")
-		g.searchAction.SetText("&Stop")
 	} else {
-		g.searchButton.SetDisabled(false)
-		g.searchAction.SetDisabled(false)
-		g.searchButton.SetText("Search")
-		g.searchAction.SetText("&Search")
 		downloadButtonState := g.list.RowsSelected() > 0
 		g.downloadButton.SetEnabled(downloadButtonState)
 		g.downloadAction.SetEnabled(downloadButtonState)
@@ -242,8 +197,8 @@ func (g *Gui) applyFilter(filter string) {
 		g.statusBar.SetErrorStatusMessage("Invalid filter regexp")
 	} else {
 		for row := 0; row < g.list.RowCount(); row++ {
-			_, _, _, info, _ := g.list.RowData(row)
-			g.list.SetRowHidden(row, core.NewQModelIndex(), !regexp.MatchString(info))
+			t := g.list.RowData(row)
+			g.list.SetRowHidden(row, core.NewQModelIndex(), !regexp.MatchString(t.Info))
 		}
 	}
 }
@@ -257,127 +212,95 @@ func (g *Gui) SyncSettings() {
 
 // Slots
 
-func (g *Gui) onRenameSeriesFilesStart(checked bool) {
+// ErrorOccured slot
+func (g *Gui) ErrorOccured(err string) {
+	g.working(false)
+	g.statusBar.ProgressBar.Hide()
+	if strings.Contains(err, "401") {
+		g.statusBar.SetErrorStatusMessage(err + ": is your TVDB apikey valid?")
+		g.settingsDialog.Exec("tvdb/apikey")
+	} else {
+		g.statusBar.SetErrorStatusMessage(err)
+	}
+}
+
+func (g *Gui) onRenameSeries(checked bool) {
 	dirName := openFileDialog(g.settings, "paths/rename", core.QDir_HomePath(), "Select directory with files to rename", true)
 	if dirName != "" {
 		g.working(true)
 		g.statusBar.StartProgress(true)
-		g.searchAction.SetDisabled(true)
-		g.searchButton.SetDisabled(true)
 		g.statusBar.SetStatusMessage("Renaming...", "\uf0c5")
-		go func() {
-			err := renamer.Rename(dirName, g.settings.Value("tvdb/apikey", core.NewQVariant14("")).ToString(), g.settings.Value("tvdb/locale", core.NewQVariant14("en")).ToString())
-			if err != nil {
-				if strings.Contains(err.Error(), "401") {
-					g.ErrorOccured(err.Error() + ". Is TVDB apikey valid? Try to change it on prefereces dialog.")
-					g.EditSettingsRequested("tvdb/apikey")
-				} else {
-					g.ErrorOccured(err.Error())
-				}
-				return
-			}
-			g.RenameCompleted()
-		}()
+		g.RenameSeriesRequested(dirName)
 	}
 }
 
-func (g *Gui) onRenameSeriesFilesDone(err error) {
-	if err != nil {
-		if strings.Contains(err.Error(), "401") {
-			g.ErrorOccured(err.Error() + ". Is TVDB apikey valid? Try to change it on prefereces dialog.")
-			g.EditSettingsRequested("tvdb/apikey")
-		} else {
-			g.ErrorOccured(err.Error())
-		}
-		return
-	}
-	g.RenameCompleted()
+// RenameSeriesCompleted slot
+func (g *Gui) RenameSeriesCompleted() {
+	g.working(false)
+	g.statusBar.ProgressBar.Hide()
+	g.statusBar.SetOkStatusMessage("Files have been renamed successfully!")
 }
 
-func (g *Gui) onSearch(checked bool) {
-	if !g.freeze {
-		if g.searchInput.Text() != "" {
-			g.working(true)
-			g.statusBar.StartProgress(true)
-			g.statusBar.SetStatusMessage("Searching '"+g.searchInput.Text()+"'...", "\uf002")
-			g.SearchRequested(g.searchInput.Text())
-			// go func() {
-			// 	torrents, err := scraper.RetrieveTorrents(g.searchInput.Text())
-			// 	if err != nil {
-			// 		g.ErrorOccured(err.Error())
-			// 		return
-			// 	}
-			// 	g.SearchCompleted(torrents)
-			// }()
-		}
-	} else {
-		g.searchAction.SetDisabled(true)
-		g.searchButton.SetDisabled(true)
-		go func() {
-			g.stopChannel <- true
-		}()
+func (g *Gui) search(checked bool) {
+	if g.searchInput.Text() != "" {
+		g.working(true)
+		g.statusBar.StartProgress(true)
+		g.statusBar.SetStatusMessage("Searching '"+g.searchInput.Text()+"'...", "\uf002")
+		g.SearchRequested(g.searchInput.Text())
 	}
 }
 
 // SearchCompleted slot
-func (g *Gui) SearchCompleted(torrents [][]byte, err error) {
-	if err != nil {
-		fmt.Println("ERROR")
-		g.ErrorOccured(err.Error())
-		return
+func (g *Gui) SearchCompleted(torrents [][]byte) {
+	var t common.Torrent
+	g.list.RemoveAllRows()
+	for i := 0; i < len(torrents); i++ {
+		json.Unmarshal(torrents[i], &t)
+		g.list.AddRow(t)
 	}
-	select {
-	case <-g.stopChannel:
-		g.ActivityInterrupted()
-	default:
-		var t scraper.Torrent
-		g.list.RemoveAllRows()
-		for i := 0; i < len(torrents); i++ {
-			json.Unmarshal(torrents[i], &t)
-			g.list.AddRow(t.Link, t.Magnet, t.Name, t.Info, t.Seeds)
-		}
-		g.list.ResizeAllColumnToContents()
-		g.working(false)
-		g.statusBar.ProgressBar.Hide()
-		if len(torrents) == 0 {
-			g.statusBar.SetStatusMessage("No torrents found!", "\uf119")
-		}
+	g.list.ResizeAllColumnToContents()
+	g.working(false)
+	g.statusBar.ProgressBar.Hide()
+	if len(torrents) == 0 {
+		g.statusBar.SetStatusMessage("No torrents found!", "\uf119")
 	}
 }
 
-func (g *Gui) onDownloadTorrents(checked bool) {
+func (g *Gui) downloadTorrents(checked bool) {
 	dirName := openFileDialog(g.settings, "paths/download", core.QDir_HomePath(), "Save torrent files in", false)
 	if dirName != "" {
 		g.working(true)
 		g.statusBar.StartProgress(false)
-		selected := g.list.RowsSelected()
-		go func() {
-			counter := 0
-			for row := 0; row < g.list.RowCount(); row++ {
-				select {
-				case <-g.stopChannel:
-					g.ActivityInterrupted()
-					return
-				default:
-					if g.list.RowSelected(row) {
-						counter++
-						link, _, name, _, _ := g.list.RowData(row)
-						g.DownloadTorrentStarted(row, name)
-						err := scraper.DownloadTorrent(link, name, dirName)
-						if err != nil {
-							g.statusBar.SetErrorStatusMessage(err.Error())
-						}
-						g.DownloadTorrentCompleted(row, 100*counter/selected)
-					}
-				}
+		torrents := make(map[int][]byte)
+		for row := 0; row < g.list.RowCount(); row++ {
+			if g.list.RowSelected(row) {
+				json, _ := json.Marshal(g.list.RowData(row))
+				torrents[row] = json
 			}
-			time.Sleep(time.Millisecond * 500)
-			g.DownloadCompleted()
-		}()
+		}
+		g.DownloadTorrentRequested(torrents, dirName)
 	}
 }
 
-func (g *Gui) onFilter(checked bool) {
+// DownloadTorrentStarted slot
+func (g *Gui) DownloadTorrentStarted(name string) {
+	g.statusBar.SetStatusMessage("Downloading torrent '"+name+"'", "\uf019")
+}
+
+// DownloadTorrentCompleted slot
+func (g *Gui) DownloadTorrentCompleted(row int, percent int) {
+	g.list.UncheckRow(row)
+	g.statusBar.ProgressBar.SetValue(percent)
+}
+
+// DownloadTorrentsCompleted slot
+func (g *Gui) DownloadTorrentsCompleted() {
+	g.working(false)
+	g.statusBar.ProgressBar.Hide()
+	g.statusBar.SetOkStatusMessage("All torrent files downloaded!")
+}
+
+func (g *Gui) filter(checked bool) {
 	if checked {
 		g.applyFilter(g.filterInput.Text())
 	} else {
@@ -387,32 +310,12 @@ func (g *Gui) onFilter(checked bool) {
 	}
 }
 
-func (g *Gui) onFilterReturnPressed() {
+func (g *Gui) filterReturnPressed() {
 	if g.filterInput.Text() == "" {
 		g.filterInput.SetText(g.settings.Value("gorrent/default_regexp", core.NewQVariant14("")).ToString())
 	}
 	if g.filterCheckBox.IsChecked() {
 		g.applyFilter(g.filterInput.Text())
-	}
-}
-
-func (g *Gui) onSearchCompleted(torrents [][]byte) {
-	select {
-	case <-g.stopChannel:
-		g.ActivityInterrupted()
-	default:
-		var t scraper.Torrent
-		g.list.RemoveAllRows()
-		for i := 0; i < len(torrents); i++ {
-			json.Unmarshal(torrents[i], &t)
-			g.list.AddRow(t.Link, t.Magnet, t.Name, t.Info, t.Seeds)
-		}
-		g.list.ResizeAllColumnToContents()
-		g.working(false)
-		g.statusBar.ProgressBar.Hide()
-		if len(torrents) == 0 {
-			g.statusBar.SetStatusMessage("No torrents found!", "\uf119")
-		}
 	}
 }
 

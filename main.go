@@ -7,6 +7,7 @@ import (
 	"github.com/nicksnyder/go-i18n/i18n"
 	g "github.com/pioz/gorrent/gui"
 	t "github.com/pioz/gorrent/i18n"
+	"github.com/pioz/gorrent/renamer"
 	"github.com/pioz/gorrent/scraper"
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/gui"
@@ -34,10 +35,32 @@ func main() {
 
 	gui := g.MakeGui(settings)
 	scraper := scraper.NewScraper(nil)
-	gui.ConnectSearchRequested(func(q string) { go func() { scraper.RetrieveTorrents(q) }() })
-	scraper.ConnectSearchCompleted(gui.SearchCompleted)
+	renamer := renamer.MakeRenamer(settings)
+
+	connectComponents(gui, scraper, renamer)
+
 	app.ConnectLastWindowClosed(func() {
 		gui.SyncSettings()
 	})
 	app.Exec()
+}
+
+func connectComponents(gui *g.Gui, scraper *scraper.Scraper, renamer *renamer.Renamer) {
+	// Connect Gui to Scraper
+	gui.ConnectSearchRequested(func(q string) { go func() { scraper.RetrieveTorrents(q) }() })
+	scraper.ConnectSearchCompleted(gui.SearchCompleted)
+	gui.ConnectDownloadTorrentRequested(func(torrents map[int][]byte, dirName string) {
+		go func() { scraper.DownloadTorrents(torrents, dirName) }()
+	})
+	scraper.ConnectDownloadTorrentStarted(gui.DownloadTorrentStarted)
+	scraper.ConnectDownloadTorrentCompleted(gui.DownloadTorrentCompleted)
+	scraper.ConnectDownloadTorrentsCompleted(gui.DownloadTorrentsCompleted)
+	scraper.ConnectErrorOccured(gui.ErrorOccured)
+	// Connect Gui to Renamer
+	gui.ConnectSettingsSaved(renamer.UpdateSettings)
+	gui.ConnectRenameSeriesRequested(func(dirName string) {
+		go func() { renamer.Rename(dirName) }()
+	})
+	renamer.ConnectRenameSeriesCompleted(gui.RenameSeriesCompleted)
+	renamer.ConnectErrorOccured(gui.ErrorOccured)
 }

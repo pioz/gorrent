@@ -8,6 +8,7 @@ import (
 	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
 )
+import "github.com/pioz/gorrent/common"
 
 const torrentDownloadURL = int(core.Qt__UserRole + 1)
 const torrentMagnetURL = int(core.Qt__UserRole + 2)
@@ -83,14 +84,14 @@ func (list *List) init() {
 }
 
 // AddRow method
-func (list *List) AddRow(link string, magnet string, name string, info string, seeds int) {
+func (list *List) AddRow(torrent common.Torrent) {
 	item1 := gui.NewQStandardItem2(" ")
-	item1.SetData(core.NewQVariant14(link), torrentDownloadURL)
-	item1.SetData(core.NewQVariant14(magnet), torrentMagnetURL)
+	item1.SetData(core.NewQVariant14(torrent.Link), torrentDownloadURL)
+	item1.SetData(core.NewQVariant14(torrent.Magnet), torrentMagnetURL)
 	item1.SetCheckable(true)
-	item2 := gui.NewQStandardItem2(name)
-	item3 := gui.NewQStandardItem2(info)
-	item4 := gui.NewQStandardItem2(strconv.Itoa(seeds))
+	item2 := gui.NewQStandardItem2(torrent.Name)
+	item3 := gui.NewQStandardItem2(torrent.Info)
+	item4 := gui.NewQStandardItem2(strconv.Itoa(torrent.Seeds))
 	i := list.model.RowCount(core.NewQModelIndex())
 	list.model.SetItem(i, 0, item1)
 	list.model.SetItem(i, 1, item2)
@@ -114,13 +115,13 @@ func (list *List) ResizeAllColumnToContents() {
 }
 
 // RowData returns data for row at index
-func (list *List) RowData(index int) (string, string, string, string, int) {
+func (list *List) RowData(index int) common.Torrent {
 	link := list.model.Item(index, 0).Data(torrentDownloadURL).ToString()
 	magnet := list.model.Item(index, 0).Data(torrentMagnetURL).ToString()
 	name := list.model.Item(index, 1).Text()
 	info := list.model.Item(index, 2).Text()
 	seeds, _ := strconv.Atoi(list.model.Item(index, 3).Text())
-	return link, magnet, name, info, seeds
+	return common.Torrent{link, magnet, name, info, seeds}
 }
 
 // RowSelected returns true if the row at index is selected
