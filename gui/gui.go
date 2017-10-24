@@ -50,7 +50,7 @@ func MakeGui(settings *core.QSettings) *Gui {
 	g.menuBar = widgets.NewQMenuBar(nil)
 	g.settingsDialog = MakeSettingsDialog(g.window, g.settings)
 	g.toolBar = widgets.NewQToolBar2(g.window)
-	g.searchInput = widgets.NewQLineEdit2("Game of Thrones s01", nil)
+	g.searchInput = widgets.NewQLineEdit(nil)
 	g.searchButton = widgets.NewQPushButton2(t.T("search"), nil)
 	g.downloadButton = widgets.NewQPushButton2("Download torrents", nil)
 	g.filterCheckBox = widgets.NewQCheckBox(nil)
