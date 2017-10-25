@@ -14,6 +14,9 @@ case "$1" in
     windres -i icon.rc -o icon_windows.syso -F pe-i386
     rm -r deploy/windows
     qtdeploy -docker build windows_32_static
+    #makecert -sv pioz.pvk -n "CN=Enrico Pilotto,E=epilotto@gmx.com" -r gorrent.cer
+    #pvk2pfx -pvk pioz.pvk -spc gorrent.cer -pfx gorrent.pfx -po $PFX_PSW
+    signtool sign -t http://timestamp.verisign.com/scripts/timstamp.dll -f gorrent.pfx -p $PFX_PSW -debug deploy/windows/gorrent.exe
     zip -jr releases/Gorrent-win32-`cat VERSION`.zip deploy/windows/gorrent.exe
     rm icon.rc icon_windows.syso gorrent.ico
     ;;
@@ -23,6 +26,7 @@ case "$1" in
     windres -i icon.rc -o icon_windows.syso -F pe-x86-64
     rm -r deploy/windows
     qtdeploy -docker build windows_64_static
+    signtool sign -t http://timestamp.verisign.com/scripts/timstamp.dll -f gorrent.pfx -p $PFX_PSW -debug deploy/windows/gorrent.exe
     zip -jr releases/Gorrent-win32-`cat VERSION`.zip deploy/windows/gorrent.exe
     rm icon.rc icon_windows.syso gorrent.ico
     ;;
