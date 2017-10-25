@@ -8,8 +8,7 @@ and [QT](https://github.com/therecipe/qt).
 ## Download
 
 * OSX: [download here](http://bit.ly/2zzWe6Q)
-* Windows 32bit: [download here](http://bit.ly/2z4E6FL)
-* Windows 64bit: [download here](http://bit.ly/2lcAUBV)
+* Windows: [download here](http://bit.ly/2z4E6FL)
 
 ## Build
 
