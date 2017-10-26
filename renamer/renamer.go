@@ -71,7 +71,10 @@ func (r *Renamer) Rename(dirPath string) {
 		if !info.IsDir() {
 			season, episode := titleToCode(filepath.Base(path))
 			if season != 0 && episode != 0 {
-				os.Rename(path, fmt.Sprintf("%s/%dx%02d - %s.avi", filepath.Dir(path), season, episode, series.GetEpisode(season, episode).EpisodeName))
+				ep := series.GetEpisode(season, episode)
+				if ep != nil {
+					os.Rename(path, fmt.Sprintf("%s/%dx%02d - %s.avi", filepath.Dir(path), season, episode, ep.EpisodeName))
+				}
 			}
 		}
 		return nil
