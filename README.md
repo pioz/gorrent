@@ -1,5 +1,7 @@
 # Gorrent
 
+<img alt="logo" src="https://github.com/pioz/gorrent/raw/master/qrc/donkey.png" width="64px" height="64px"/>
+
 A simple program to download torrent files written in [GO](https://golang.org/)
 and [QT](https://github.com/therecipe/qt).
 
