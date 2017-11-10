@@ -132,7 +132,7 @@ func (g *Gui) initMenuBar() {
 	quitAction.ConnectTriggered(func(bool) { g.window.Close() })
 	aboutAction.ConnectTriggered(func(bool) {
 		widgets.QMessageBox_About(g.window, "Gorrent",
-			`<p><h1>Gorrent</h1> version 0.1.0</p>
+			`<p><h1>Gorrent</h1> version 0.1.1</p>
 			<p>Developed by <a href="https://github.com/pioz">Pioz</a> in an attempt to learn Go and brush up QT</p>`)
 	})
 
